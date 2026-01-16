@@ -1,0 +1,283 @@
+@startuml
+!theme plain
+hide circle
+skinparam linetype ortho
+
+' ================================================
+' 1. GESTIÓN DE USUARIOS Y ROLES
+' ================================================
+
+entity "Roles" as roles {
+  *id : int
+  --
+  nombre : varchar
+  descripcion : varchar
+}
+
+entity "Usuarios" as usuarios {
+  *id : int
+  --
+  id_rol : int <<FK>>
+  nombre : varchar
+  email : varchar
+  password : varchar
+  activo : bool
+  remember_token : varchar
+}
+
+roles ||..o{ usuarios
+
+' ================================================
+' 2. NEGOCIO: CLIENTES, CITAS Y SERVICIOS
+' ================================================
+
+entity "Clientes" as clientes {
+  *id : int
+  --
+  nombre : varchar
+  apellido : varchar
+  tipo_documento : varchar
+  numero_documento : varchar
+  telefono : varchar
+  email : varchar
+  direccion : varchar
+  deleted_at : datetime <<Soft Delete>>
+}
+
+entity "Estilistas" as estilistas {
+  *id : int
+  --
+  nombre : varchar
+  especialidad : varchar
+  telefono : varchar
+  activo : bool
+  deleted_at : datetime <<Soft Delete>>
+}
+
+entity "CategoriasServicio" as categorias_servicio {
+  *id : int
+  --
+  nombre : varchar
+  activo : bool
+  deleted_at : datetime <<Soft Delete>>
+}
+
+entity "Servicios" as servicios {
+  *id : int
+  --
+  id_categoria_servicio : int <<FK>>
+  id_afectacion_igv : int <<FK>>
+  id_unidad_sunat : int <<FK>>
+  nombre : varchar
+  precio : decimal
+  duracion_minutos : int
+  activo : bool
+  deleted_at : datetime <<Soft Delete>>
+}
+
+entity "Turnos" as turnos {
+  *id : int
+  --
+  id_cliente : int <<FK>>
+  id_estilista : int <<FK>>
+  fecha_inicio : datetime
+  fecha_fin : datetime
+  estado : varchar
+}
+
+entity "TurnoServicio" as turno_servicio {
+  *id : int
+  --
+  id_turno : int <<FK>>
+  id_servicio : int <<FK>>
+  precio_aplicado : decimal
+}
+
+categorias_servicio ||..o{ servicios
+clientes ||..o{ turnos
+estilistas ||..o{ turnos
+turnos ||..o{ turno_servicio
+servicios ||..o{ turno_servicio
+
+' ================================================
+' 3. INVENTARIO
+' ================================================
+
+entity "Productos" as productos {
+  *id : int
+  --
+  id_afectacion_igv : int <<FK>>
+  id_unidad_sunat : int <<FK>>
+  nombre : varchar
+  precio : decimal
+  stock_actual : int
+  stock_minimo : int
+  activo : bool
+  deleted_at : datetime <<Soft Delete>>
+}
+
+entity "MovimientosInventario" as mov_inv {
+  *id : int
+  --
+  id_producto : int <<FK>>
+  id_usuario : int <<FK>>
+  tipo : enum(entrada, venta, consumo, ajuste)
+  cantidad : int
+  motivo : varchar
+  created_at : datetime
+}
+
+productos ||..o{ mov_inv
+usuarios ||..o{ mov_inv
+
+' ================================================
+' 4. VENTAS Y CAJA (Con Snapshot Tributario)
+' ================================================
+
+entity "Cajas" as cajas {
+  *id : int
+  --
+  id_usuario_apertura : int <<FK>>
+  id_usuario_cierre : int <<FK>>
+  fecha_apertura : datetime
+  fecha_cierre : datetime
+  monto_apertura : decimal
+  monto_cierre : decimal
+  estado : enum(abierta, cerrada)
+}
+
+entity "Ventas" as ventas {
+  *id : int
+  --
+  id_caja : int <<FK>>
+  id_cliente : int <<FK>>
+  id_turno : int <<FK>>
+  fecha : datetime
+  
+  ' Totales calculados (Snapshot Cabecera)
+  op_gravadas : decimal
+  op_exoneradas : decimal
+  monto_igv : decimal
+  total : decimal
+  
+  estado : enum(pagada, anulada)
+}
+
+entity "DetallesVenta" as det_venta {
+  *id : int
+  --
+  id_venta : int <<FK>>
+  tipo_item : enum(servicio, producto)
+  id_servicio : int <<FK>>
+  id_producto : int <<FK>>
+  
+  ' SNAPSHOT TRIBUTARIO (Inmutabilidad del Ítem)
+  nombre_item : varchar
+  codigo_afectacion_igv : varchar
+  porcentaje_igv : decimal
+  codigo_unidad_medida : varchar
+  
+  cantidad : int
+  valor_unitario : decimal
+  precio_unitario : decimal
+  igv_total_linea : decimal
+  subtotal : decimal
+}
+
+entity "Pagos" as pagos {
+  *id : int
+  --
+  id_venta : int <<FK>>
+  id_metodo_pago : int <<FK>>
+  monto : decimal
+  fecha : datetime
+}
+
+entity "MetodosPago" as metodos_pago {
+  *id : int
+  --
+  nombre : varchar
+  activo : bool
+}
+
+usuarios ||..o{ cajas
+cajas ||..o{ ventas
+clientes ||..o{ ventas
+turnos ||..o{ ventas
+ventas ||..o{ det_venta
+ventas ||..o{ pagos
+metodos_pago ||..o{ pagos
+servicios ||..o{ det_venta
+productos ||..o{ det_venta
+
+' ================================================
+' 5. FACTURACIÓN SFS (LOCAL / SUNAT)
+' ================================================
+
+entity "TiposComprobante" as tipos_comprobante {
+  *id : int
+  --
+  codigo_sunat : varchar (01, 03, 00)
+  descripcion : varchar
+  genera_xml : bool <<Bandera Control SFS>>
+}
+
+entity "SeriesComprobante" as series_cpe {
+  *id : int
+  --
+  id_tipo_comprobante : int <<FK>>
+  serie : varchar (F001, B001)
+  correlativo_actual : int
+}
+
+entity "Comprobantes" as cpe {
+  *id : int
+  --
+  id_venta : int <<FK>>
+  id_tipo_comprobante : int <<FK>>
+  id_serie_comprobante : int <<FK>>
+  numero : varchar (F001-0000342)
+  
+  fecha_emision : datetime
+  
+  ' SNAPSHOT RECEPTOR (Inmutabilidad Cliente)
+  receptor_tipo_doc : varchar
+  receptor_numero_doc : varchar
+  receptor_razon_social : varchar
+  receptor_direccion : varchar
+  
+  ' Datos Respuesta SFS
+  xml_firmado : text
+  cdr_sunat : text
+  hash : varchar
+  
+  contingencia : bool
+}
+
+entity "Archivos_SUNAT" as archivos_sunat {
+  *id : int
+  --
+  id_comprobante : int <<FK>>
+  nombre_archivo : varchar
+  estado : enum(generado, enviado_sfs, procesado_ok, error)
+  contenido_error : text
+  created_at : datetime
+}
+
+entity "Configuracion_SFS" as config_sfs {
+  *id : int
+  --
+  nombre_pc : varchar
+  ruta_data : varchar
+  ruta_firma : varchar
+  ruta_rpta : varchar
+  activo : bool
+}
+
+tipos_comprobante ||..o{ series_cpe
+series_cpe ||..o{ cpe
+ventas ||..o{ cpe
+tipos_comprobante ||..o{ cpe
+cpe ||..o{ archivos_sunat
+
+@enduml

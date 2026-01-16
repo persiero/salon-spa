@@ -1,0 +1,395 @@
+@startuml
+!theme plain
+hide circle
+skinparam linetype ortho
+
+' ===========================
+' ENTIDADES BASE
+' ===========================
+
+entity "Roles" as roles {
+  *id
+  --
+  nombre
+  descripcion
+}
+
+entity "Usuarios" as usuarios {
+  *id
+  --
+  id_rol
+  nombre
+  email
+  password
+  activo
+  remember_token
+}
+
+entity "Clientes" as clientes {
+  *id
+  --
+  nombre
+  apellido
+  tipo_documento
+  numero_documento
+  telefono
+  email
+  direccion
+  deleted_at : datetime
+}
+
+entity "Estilistas" as estilistas {
+  *id
+  --
+  nombre
+  especialidad
+  telefono
+  activo
+  deleted_at : datetime
+}
+
+roles ||--o{ usuarios : tiene >
+usuarios }o--|| roles
+
+' ===========================
+' CATALOGOS SUNAT + CONFIG
+' ===========================
+
+entity "TiposComprobante" as tipos_comprobante {
+  *id
+  --
+  codigo_sunat
+  descripcion
+  tributario
+}
+
+entity "EstadosComprobante" as estados_comprobante {
+  *id
+  --
+  nombre
+  descripcion
+}
+
+entity "AfectacionesIGV" as afectaciones_igv {
+  *id
+  --
+  codigo_sunat
+  nombre
+  gravado
+  porcentaje_igv
+}
+
+entity "UnidadesSUNAT" as unidades_sunat {
+  *id
+  --
+  codigo_sunat
+  descripcion
+  tipo
+}
+
+entity "ConfigNegocio" as config_negocio {
+  *id
+  --
+  nombre_comercial
+  direccion
+  precio_incluye_igv
+}
+
+entity "ConfigTributaria" as config_tributaria {
+  *id
+  --
+  igv_porcentaje
+  emision_automatica_cpe
+}
+
+' ===========================
+' NEGOCIO (SERVICIOS + TURNOS)
+' ===========================
+
+entity "CategoriasServicio" as categorias_servicio {
+  *id
+  --
+  nombre
+  descripcion
+  activo
+}
+
+entity "Servicios" as servicios {
+  *id
+  --
+  id_categoria_servicio
+  id_afectacion_igv
+  id_unidad_sunat
+  nombre
+  precio
+  duracion_minutos
+  activo
+  deleted_at : datetime
+}
+
+entity "Turnos" as turnos {
+  *id
+  --
+  id_cliente
+  id_estilista
+  fecha_inicio
+  fecha_fin
+  estado
+}
+
+entity "TurnoServicio" as turno_servicio {
+  *id
+  --
+  id_turno
+  id_servicio
+  precio_aplicado
+}
+
+categorias_servicio ||--o{ servicios
+afectaciones_igv ||--o{ servicios
+unidades_sunat ||--o{ servicios
+
+clientes ||--o{ turnos
+estilistas ||--o{ turnos
+turnos ||--o{ turno_servicio
+servicios ||--o{ turno_servicio
+
+' ===========================
+' INVENTARIO
+' ===========================
+
+entity "Productos" as productos {
+  *id
+  --
+  id_afectacion_igv
+  id_unidad_sunat
+  nombre
+  precio
+  stock_actual
+  stock_minimo
+  activo
+  deleted_at : datetime
+}
+
+entity "MovimientosInventario" as mov_inv {
+  *id
+  --
+  id_producto
+  id_usuario
+  tipo
+  cantidad
+  motivo
+  created_at
+}
+
+afectaciones_igv ||--o{ productos
+unidades_sunat ||--o{ productos
+productos ||--o{ mov_inv
+usuarios ||--o{ mov_inv
+
+' ===========================
+' VENTAS + CAJA
+' ===========================
+
+entity "Cajas" as cajas {
+  *id
+  --
+  id_usuario_apertura
+  id_usuario_cierre
+  fecha_apertura
+  fecha_cierre
+  monto_apertura
+  monto_cierre
+  estado
+}
+
+entity "Ventas" as ventas {
+  *id
+  --
+  id_cliente
+  id_turno
+  id_caja
+  fecha
+  
+  ' -- Totales Globales Tributarios --
+  op_gravadas : decimal
+  op_exoneradas : decimal
+  op_inafectas : decimal
+  monto_igv : decimal
+  total : decimal
+  
+  estado
+}
+
+entity "DetallesVenta" as det_venta {
+  *id
+  --
+  id_venta
+  tipo_item : enum('servicio','producto')
+  id_servicio : nullable
+  id_producto : nullable
+  
+  ' -- Snapshot del Item (Inmutabilidad) --
+  nombre_item : string
+  codigo_afectacion_igv : string
+  porcentaje_igv : decimal
+  codigo_unidad_medida : string
+  
+  cantidad : decimal
+  valor_unitario : decimal ' Base sin impuestos
+  precio_unitario : decimal ' Final con impuestos
+  
+  igv_total_linea : decimal
+  subtotal : decimal
+}
+
+entity "MetodosPago" as metodos_pago {
+  *id
+  --
+  nombre
+  descripcion
+  activo
+}
+
+entity "Pagos" as pagos {
+  *id
+  --
+  id_venta
+  id_metodo_pago
+  monto
+  referencia
+  fecha
+}
+
+usuarios ||--o{ cajas
+cajas ||--o{ ventas
+clientes ||--o{ ventas
+turnos ||--o{ ventas
+ventas ||--o{ det_venta
+ventas ||--o{ pagos
+metodos_pago ||--o{ pagos
+
+servicios ||--o{ det_venta
+productos ||--o{ det_venta
+
+' ===========================
+' TRIBUTARIO (CPE)
+' ===========================
+
+entity "SeriesComprobante" as series_cpe {
+  *id
+  --
+  id_tipo_comprobante
+  serie
+  correlativo_actual
+  activo
+}
+
+entity "Comprobantes" as cpe {
+  *id
+  --
+  id_venta
+  id_tipo_comprobante
+  id_estado_comprobante
+  id_serie_comprobante
+  
+  ' -- Datos de Identificación --
+  numero_completo : string
+  fecha_emision : datetime
+  fecha_envio : datetime
+  
+  ' -- Snapshot del Receptor (Inmutabilidad) --
+  receptor_tipo_doc : string
+  receptor_numero_doc : string
+  receptor_razon_social : string
+  receptor_direccion : string
+  
+  ' -- Totales Informativos (Copia de Venta) --
+  total_gravado : decimal
+  total_exonerado : decimal
+  total_igv : decimal
+  total_venta : decimal
+  
+  contingencia : boolean
+  observaciones : text
+}
+
+entity "EnviosOSE" as envios_ose {
+  *id
+  --
+  id_comprobante
+  fecha_envio
+  fecha_respuesta
+  estado
+  reintentos
+}
+
+entity "ComunicacionBaja" as baja {
+  *id
+  --
+  id_comprobante
+  fecha_comunicacion
+  ticket_sunat
+  estado
+  motivo
+}
+
+tipos_comprobante ||--o{ series_cpe
+series_cpe ||--o{ cpe
+estados_comprobante ||--o{ cpe
+ventas ||--o{ cpe
+cpe ||--o{ envios_ose
+cpe ||--o{ baja
+
+' ===========================
+' INTEGRACIÓN PSE
+' ===========================
+
+entity "PSE_Proveedores" as pse_prov {
+  *id
+  --
+  nombre
+  descripcion
+  activo
+}
+
+entity "PSE_Credenciales" as pse_cred {
+  *id
+  --
+  id_pse_proveedor
+  ambiente
+  usuario
+  password
+  token
+  fecha_expiracion
+  activo
+}
+
+entity "PSE_Endpoints" as pse_end {
+  *id
+  --
+  id_pse_proveedor
+  ambiente
+  url_emision
+  url_consulta
+  url_baja
+}
+
+entity "PSE_Logs" as pse_logs {
+  *id
+  --
+  id_comprobante
+  id_pse_proveedor
+  endpoint
+  payload
+  respuesta
+  exito
+  fecha
+}
+
+pse_prov ||--o{ pse_cred
+pse_prov ||--o{ pse_end
+pse_prov ||--o{ pse_logs
+cpe ||--o{ pse_logs
+
+@enduml
